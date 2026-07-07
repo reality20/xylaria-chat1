@@ -66,24 +66,17 @@ export function useAgentChat() {
   const stop = useCallback(() => { abortRef.current?.abort(); abortRef.current = null; setStatus('idle'); setActiveToolCalls([]); }, []);
 
   // Core streaming with tool calling loop
-  const streamResponse = useCallback(async (initialMessages: Message[], chatId: string) => {
+  const streamResponse = useCallback(async (messages: Message[], chatId: string, assistantId: string) => {
     const toolsDesc = buildToolsDescription(allTools);
     const systemPrompt = getSystemPromptWithDate(settings.systemPrompt.replace('{tools}', toolsDesc));
     let iteration = 0;
-
-    const currentMessages = [...initialMessages];
+    let fullContent = '';
 
     while (iteration < MAX_ITERATIONS) {
       iteration++;
-      let fullContent = '';
-      const assistantId = generateId();
 
-      const assistantMsg: Message = { id: assistantId, role: 'assistant', content: '', createdAt: Date.now() };
-
-      setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, messages: [...currentMessages, assistantMsg], updatedAt: Date.now() } : c));
-
-      const conversation = currentMessages.map((m) => ({
-        role: m.role,
+      const conversation = messages.map((m) => ({
+        role: m.role === 'tool' ? 'assistant' : m.role,
         content: m.content,
       }));
 
@@ -93,7 +86,7 @@ export function useAgentChat() {
       ];
 
       const concatenated = apiMessages.map((m) => {
-        const label = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role === 'tool' ? 'Tool' : 'System';
+        const label = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'System';
         return `[${label}]: ${m.content}`;
       }).join('\n\n');
 
@@ -154,10 +147,6 @@ export function useAgentChat() {
         } : c));
       }
 
-      assistantMsg.content = fullContent;
-      assistantMsg.tool_calls = toolCalls;
-      currentMessages.push(assistantMsg);
-
       // Save artifacts
       if (artifacts.length > 0) {
         const newArtifacts: Artifact[] = artifacts.map((a) => ({ ...a, id: generateId() }));
@@ -184,14 +173,13 @@ export function useAgentChat() {
           id: generateId(), role: 'tool', content: `[Tool: ${tc.name}] Result (${duration}ms):\n${resultStr}`,
           tool_call_id: tc.id, createdAt: Date.now(),
         };
-        currentMessages.push(toolMsg);
+        messages.push(toolMsg);
         setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, messages: [...c.messages, toolMsg], updatedAt: Date.now() } : c));
       }
-
-      setStatus('streaming');
     }
 
-  }, [allTools, settings.systemPrompt, setChats]);
+    return fullContent;
+  }, [allTools, settings.systemPrompt]);
 
   const sendMessage = useCallback(async (content?: string) => {
     const msg = content || input;
@@ -203,22 +191,23 @@ export function useAgentChat() {
     setToolCallHistory([]);
 
     const userMsg: Message = { id: generateId(), role: 'user', content: msg.trim(), createdAt: Date.now() };
+    const assistantMsg: Message = { id: generateId(), role: 'assistant', content: '', createdAt: Date.now() };
 
     let chatId = currentChatId;
     if (!chatId) {
       chatId = generateId();
-      setChats((p) => [{ id: chatId!, title: generateTitleFromMessage(userMsg.content), messages: [userMsg], artifacts: [], createdAt: Date.now(), updatedAt: Date.now() }, ...p]);
+      setChats((p) => [{ id: chatId!, title: generateTitleFromMessage(userMsg.content), messages: [userMsg, assistantMsg], artifacts: [], createdAt: Date.now(), updatedAt: Date.now() }, ...p]);
       setCurrentChatId(chatId);
     } else {
-      setChats((p) => p.map((c) => c.id === chatId ? { ...c, messages: [...c.messages, userMsg], updatedAt: Date.now() } : c));
+      setChats((p) => p.map((c) => c.id === chatId ? { ...c, messages: [...c.messages, userMsg, assistantMsg], updatedAt: Date.now() } : c));
     }
 
     setInput('');
     setStatus('streaming');
 
     try {
-      const msgs = currentChat ? [...currentChat.messages, userMsg] : [userMsg];
-      await streamResponse(msgs, chatId!);
+      const msgs = currentChat ? [...currentChat.messages, userMsg, assistantMsg] : [userMsg, assistantMsg];
+      await streamResponse(msgs, chatId!, assistantMsg.id);
       setStatus('idle');
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') setStatus('idle');
@@ -234,16 +223,17 @@ export function useAgentChat() {
     const idx = currentChat.messages.findIndex((m) => m.id === msgId);
     if (idx === -1) return;
     const prev = currentChat.messages.slice(0, idx);
-    setChats((p) => p.map((c) => c.id === currentChat.id ? { ...c, messages: [...prev], updatedAt: Date.now() } : c));
+    const assistantMsg: Message = { id: generateId(), role: 'assistant', content: '', createdAt: Date.now() };
+    setChats((p) => p.map((c) => c.id === currentChat.id ? { ...c, messages: [...prev, assistantMsg], updatedAt: Date.now() } : c));
     setError(null); setStatus('streaming'); setActiveToolCalls([]); setToolCallHistory([]);
     try {
-      await streamResponse([...prev], currentChat.id);
+      await streamResponse([...prev, assistantMsg], currentChat.id, assistantMsg.id);
       setStatus('idle');
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') setStatus('idle');
       else { setError(err instanceof Error ? err.message : 'Error'); setStatus('error'); }
     } finally { abortRef.current = null; setActiveToolCalls([]); }
-  }, [currentChat, streamResponse, setChats]);
+  }, [currentChat, streamResponse]);
 
   // Refresh functions
   const refreshConnectors = useCallback(() => setConnectors(loadConnectors()), []);

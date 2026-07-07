@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { MenuIcon, TerminalIcon, Settings2Icon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAgentChat } from '@/hooks/use-agent-chat';
@@ -23,23 +23,6 @@ export function ChatInterface() {
     activeToolCalls, toolCallHistory, memories, clearAllMemories, allTools,
   } = useAgentChat();
 
-  const [viewportHeight, setViewportHeight] = useState<number | string>('100dvh');
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.visualViewport) {
-        setViewportHeight(window.visualViewport.height);
-      }
-    };
-
-    window.visualViewport?.addEventListener('resize', handleResize);
-    handleResize();
-
-    return () => {
-      window.visualViewport?.removeEventListener('resize', handleResize);
-    };
-  }, []);
-
   const openArtifact = useCallback((code: string, lang?: string) => {
     const a: Artifact = { id: crypto.randomUUID(), type: lang === 'html' ? 'html' : lang === 'svg' ? 'svg' : 'code', title: `${lang || 'code'} artifact`, content: code, language: lang || 'javascript' };
     setCurrentArtifact(a);
@@ -47,7 +30,7 @@ export function ChatInterface() {
   }, [setCurrentArtifact, setIsArtifactOpen]);
 
   return (
-    <div className="flex w-full overflow-hidden bg-background" style={{ height: viewportHeight }}>
+    <div className="flex h-dvh w-full overflow-hidden bg-background">
       {/* Sidebar */}
       <Sidebar
         chats={chats} currentId={currentChat?.id || null}
@@ -59,7 +42,7 @@ export function ChatInterface() {
       <div className="relative flex flex-1 flex-col overflow-hidden">
         {/* Header */}
         <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border/50 bg-background/95 backdrop-blur-sm px-4 z-10">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className={cn('flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground', sidebarOpen && 'md:hidden')}>
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className={cn('flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground', sidebarOpen && 'hidden md:flex')}>
             <MenuIcon className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-2 min-w-0">

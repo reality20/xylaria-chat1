@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MessageSquareIcon, PenSquareIcon, TrashIcon, XIcon, SettingsIcon } from 'lucide-react';
+import { MessageSquareIcon, PanelLeftIcon, PenSquareIcon, TrashIcon, XIcon, SettingsIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Chat } from '@/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -28,8 +28,8 @@ export function Sidebar({ chats, currentId, onSelect, onNew, onDelete, onClear, 
       {isOpen && <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] md:hidden" onClick={onToggle} />}
 
       <aside className={cn(
-        'fixed inset-y-0 left-0 z-50 flex flex-col bg-sidebar transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:static md:shrink-0',
-        isOpen ? 'w-72 translate-x-0 border-r border-border' : '-translate-x-full md:translate-x-0 md:w-0 md:border-r-0 md:overflow-hidden border-r border-border md:border-none'
+        'fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
+        isOpen ? 'w-72 translate-x-0' : '-translate-x-full md:translate-x-0 md:w-16'
       )}>
         {/* Header */}
         <div className="flex items-center justify-between px-3 pt-3 pb-2">
@@ -47,6 +47,11 @@ export function Sidebar({ chats, currentId, onSelect, onNew, onDelete, onClear, 
                   <XIcon className="h-4 w-4" />
                 </button>
               </>
+            )}
+            {!isOpen && (
+              <button onClick={onToggle} className="hidden md:flex rounded-lg p-1.5 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors" title="Open sidebar">
+                <PanelLeftIcon className="h-4 w-4" />
+              </button>
             )}
           </div>
         </div>
