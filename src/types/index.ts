@@ -58,10 +58,11 @@ export interface MCPServer {
 
 export interface Artifact {
   id: string;
-  type: 'code' | 'html' | 'svg' | 'document';
+  type: 'code' | 'html' | 'svg' | 'document' | 'image';
   title: string;
   content: string;
   language?: string;
+  imageUrl?: string;
 }
 
 export interface Chat {
@@ -71,6 +72,9 @@ export interface Chat {
   artifacts: Artifact[];
   createdAt: number;
   updatedAt: number;
+  pinned?: boolean;
+  folder?: string;
+  forkedFrom?: string;
 }
 
 export interface MemoryEntry {
@@ -78,6 +82,8 @@ export interface MemoryEntry {
   value: string;
   timestamp: number;
 }
+
+export type ChatMode = 'fast' | 'balanced' | 'creative' | 'precise' | 'research';
 
 export interface Settings {
   systemPrompt: string;
@@ -87,6 +93,29 @@ export interface Settings {
   streamEnabled: boolean;
   showToolCalls: boolean;
   customName: string;
+  defaultMode: ChatMode;
+  temperature: number;
+  enableArtifacts: boolean;
+  enableIris: boolean;
+  enableWebSearch: boolean;
+  enableMemory: boolean;
+  customInstructions: string;
 }
+
+export interface ChatModeConfig {
+  id: ChatMode;
+  label: string;
+  description: string;
+  temperature: number;
+  systemSuffix: string;
+}
+
+export const CHAT_MODES: ChatModeConfig[] = [
+  { id: 'fast', label: 'Fast', description: 'Quick answers, no tools', temperature: 0.4, systemSuffix: 'Respond concisely. Skip tools unless absolutely necessary.' },
+  { id: 'balanced', label: 'Balanced', description: 'Default — tools when helpful', temperature: 0.7, systemSuffix: 'Use tools when they would improve the answer.' },
+  { id: 'creative', label: 'Creative', description: 'Longer, more imaginative', temperature: 1.0, systemSuffix: 'Be imaginative and exploratory. Longer, richer responses.' },
+  { id: 'precise', label: 'Precise', description: 'Factual, careful', temperature: 0.2, systemSuffix: 'Be precise and factual. Cite sources via web_search when possible.' },
+  { id: 'research', label: 'Research', description: 'Deep multi-step research', temperature: 0.5, systemSuffix: 'Conduct thorough research: call web_search and fetch_url multiple times. Synthesize findings with citations.' },
+];
 
 export type ChatStatus = 'idle' | 'submitted' | 'streaming' | 'tool-calling' | 'error';

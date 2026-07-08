@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Message, Chat, ChatStatus, Artifact, Connector, MCPServer, Tool } from '@/types';
+import type { Message, Chat, ChatStatus, Artifact, Connector, MCPServer, Tool, ChatMode } from '@/types';
+import { CHAT_MODES } from '@/types';
 import { generateId, generateTitleFromMessage, getSystemPromptWithDate } from '@/lib/utils';
 import { useLocalStorage } from './use-local-storage';
 import { BUILTIN_TOOLS } from '@/lib/tools/builtins';
@@ -11,7 +12,7 @@ import type { Settings } from '@/types';
 
 const API_URL = 'https://xylaria2s.vercel.app/api/v1/chat/completions';
 const MODEL = 'xylaria-2-senoa-max';
-const MAX_ITERATIONS = 8;
+const MAX_ITERATIONS = 10;
 
 export function useAgentChat() {
   const [chats, setChats] = useLocalStorage<Chat[]>('xylaria-chats-v3', []);
@@ -25,6 +26,9 @@ export function useAgentChat() {
   const [currentArtifact, setCurrentArtifact] = useState<Artifact | null>(null);
   const [isArtifactOpen, setIsArtifactOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [mode, setMode] = useState<ChatMode>(settings.defaultMode || 'balanced');
   const [activeToolCalls, setActiveToolCalls] = useState<Array<{ name: string; status: 'running' | 'done' | 'error'; duration?: number }>>([]);
   const [toolCallHistory, setToolCallHistory] = useState<Array<{ name: string; input: string; output: string; error: string | null }>>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -65,10 +69,60 @@ export function useAgentChat() {
   const clearAllChats = useCallback(() => { setChats([]); setCurrentChatId(null); }, [setChats, setCurrentChatId]);
   const stop = useCallback(() => { abortRef.current?.abort(); abortRef.current = null; setStatus('idle'); setActiveToolCalls([]); }, []);
 
+  // Pin / unpin a chat (pinned chats float to the top of the sidebar).
+  const togglePinChat = useCallback((id: string) => {
+    setChats((p) => p.map((c) => c.id === id ? { ...c, pinned: !c.pinned } : c));
+  }, [setChats]);
+
+  // Rename a chat.
+  const renameChat = useCallback((id: string, title: string) => {
+    setChats((p) => p.map((c) => c.id === id ? { ...c, title } : c));
+  }, [setChats]);
+
+  // Fork (branch) a conversation — copies messages but starts a new chat.
+  const forkChat = useCallback((id: string, fromMessageId?: string) => {
+    const src = chats.find((c) => c.id === id);
+    if (!src) return;
+    const cutoff = fromMessageId ? src.messages.findIndex((m) => m.id === fromMessageId) : src.messages.length - 1;
+    const msgs = fromMessageId ? src.messages.slice(0, cutoff + 1) : [...src.messages];
+    const newId = generateId();
+    const newChat: Chat = {
+      id: newId,
+      title: `${src.title} (fork)`,
+      messages: msgs,
+      artifacts: [...src.artifacts],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      forkedFrom: id,
+    };
+    setChats((p) => [newChat, ...p]);
+    setCurrentChatId(newId);
+  }, [chats, setChats, setCurrentChatId]);
+
+  // Generate a shareable Markdown export of the current chat.
+  const exportChatMarkdown = useCallback((id: string): string => {
+    const c = chats.find((x) => x.id === id);
+    if (!c) return '';
+    const lines: string[] = [`# ${c.title}`, '', `*Created: ${new Date(c.createdAt).toLocaleString()}*`, ''];
+    for (const m of c.messages) {
+      if (m.role === 'tool') continue;
+      lines.push(`## ${m.role === 'user' ? 'You' : 'Xylaria'}`);
+      lines.push('');
+      lines.push(m.content);
+      lines.push('');
+    }
+    return lines.join('\n');
+  }, [chats]);
+
   // Core streaming with tool calling loop
   const streamResponse = useCallback(async (initialMessages: Message[], chatId: string) => {
     const toolsDesc = buildToolsDescription(allTools);
-    const systemPrompt = getSystemPromptWithDate(settings.systemPrompt.replace('{tools}', toolsDesc));
+    const modeConfig = CHAT_MODES.find((m) => m.id === mode) || CHAT_MODES[1];
+    const basePrompt = settings.systemPrompt
+      .replace('{tools}', toolsDesc)
+      + '\n\n## Current mode: ' + modeConfig.label + '\n' + modeConfig.systemSuffix
+      + (settings.customInstructions ? '\n\n## User custom instructions\n' + settings.customInstructions : '');
+    const systemPrompt = getSystemPromptWithDate(basePrompt);
     let iteration = 0;
 
     const currentMessages = [...initialMessages];
@@ -102,7 +156,12 @@ export function useAgentChat() {
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: concatenated }], stream: true }),
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [{ role: 'user', content: concatenated }],
+          stream: true,
+          temperature: modeConfig.temperature,
+        }),
         signal: abortRef.current.signal,
       });
 
@@ -174,11 +233,20 @@ export function useAgentChat() {
 
       for (const tc of toolCalls) {
         setActiveToolCalls((prev) => [...prev, { name: tc.name, status: 'running' }]);
-        const { result, error: toolError, duration } = await executeToolCall(tc, allTools);
+        const { result, error: toolError, duration, artifact } = await executeToolCall(tc, allTools);
         const resultStr = formatToolResult(tc.name, result, toolError);
 
         setActiveToolCalls((prev) => prev.map((a) => a.name === tc.name && a.status === 'running' ? { ...a, status: toolError ? 'error' : 'done', duration } : a));
         setToolCallHistory((prev) => [...prev, { name: tc.name, input: JSON.stringify(tc.arguments), output: resultStr, error: toolError }]);
+
+        // If the tool returned an artifact (e.g. svg_generator or iris_image_gen), surface it.
+        if (artifact) {
+          const newArt: Artifact = { ...artifact, id: generateId() };
+          setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, artifacts: [...c.artifacts, newArt], updatedAt: Date.now() } : c));
+          // Auto-open the artifact panel.
+          setCurrentArtifact(newArt);
+          setIsArtifactOpen(true);
+        }
 
         const toolMsg: Message = {
           id: generateId(), role: 'tool', content: `[Tool: ${tc.name}] Result (${duration}ms):\n${resultStr}`,
@@ -191,7 +259,7 @@ export function useAgentChat() {
       setStatus('streaming');
     }
 
-  }, [allTools, settings.systemPrompt, setChats]);
+  }, [allTools, settings.systemPrompt, settings.customInstructions, mode, setChats]);
 
   const sendMessage = useCallback(async (content?: string) => {
     const msg = content || input;
@@ -245,6 +313,25 @@ export function useAgentChat() {
     } finally { abortRef.current = null; setActiveToolCalls([]); }
   }, [currentChat, streamResponse, setChats]);
 
+  // Edit a user message in place (truncates following messages, re-streams).
+  const editUserMessage = useCallback(async (msgId: string, newContent: string) => {
+    if (!currentChat) return;
+    const idx = currentChat.messages.findIndex((m) => m.id === msgId);
+    if (idx === -1) return;
+    const prev = currentChat.messages.slice(0, idx);
+    const edited: Message = { ...currentChat.messages[idx], content: newContent, createdAt: Date.now() };
+    const newMsgs = [...prev, edited];
+    setChats((p) => p.map((c) => c.id === currentChat.id ? { ...c, messages: newMsgs, updatedAt: Date.now() } : c));
+    setError(null); setStatus('streaming'); setActiveToolCalls([]); setToolCallHistory([]);
+    try {
+      await streamResponse([...newMsgs], currentChat.id);
+      setStatus('idle');
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') setStatus('idle');
+      else { setError(err instanceof Error ? err.message : 'Error'); setStatus('error'); }
+    } finally { abortRef.current = null; setActiveToolCalls([]); }
+  }, [currentChat, setChats, streamResponse]);
+
   // Refresh functions
   const refreshConnectors = useCallback(() => setConnectors(loadConnectors()), []);
   const refreshMCP = useCallback(async () => {
@@ -267,12 +354,16 @@ export function useAgentChat() {
     messages: currentChat?.messages || [],
     input, setInput,
     status, error,
-    sendMessage, stop, regenerate,
+    sendMessage, stop, regenerate, editUserMessage,
     chats, currentChat,
     createNewChat, selectChat, deleteChat, clearAllChats,
+    togglePinChat, renameChat, forkChat,
+    exportChatMarkdown,
     currentArtifact, setCurrentArtifact,
     isArtifactOpen, setIsArtifactOpen,
     isSettingsOpen, setIsSettingsOpen,
+    isCommandPaletteOpen, setIsCommandPaletteOpen,
+    isShareOpen, setIsShareOpen,
     settings, updateSettings,
     connectors, refreshConnectors,
     mcpServers, refreshMCP,
@@ -281,5 +372,6 @@ export function useAgentChat() {
     memories,
     addMemory, removeMemory, clearAllMemories,
     allTools,
+    mode, setMode,
   };
 }

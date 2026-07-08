@@ -12,18 +12,20 @@ export function buildToolsDescription(tools: Tool[]): string {
   }).join('\n\n');
 }
 
-// Strict JSON parsing for tool calls
-const TOOL_JSON_REGEX = /\{\s*"tool"\s*:\s*"([^"]+)"\s*,\s*"params"\s*:\s*(\{[\s\S]*?\})\s*\}/g;
+// Strict JSON parsing for tool calls — non-greedy but balances braces.
+// We accept both { "tool": ..., "params": {...} } and { "tool": ..., "arguments": {...} }.
+const TOOL_JSON_REGEX = /\{\s*"tool"\s*:\s*"([^"]+)"\s*,\s*"(?:params|arguments)"\s*:\s*(\{[\s\S]*?\})\s*\}/g;
 const ARTIFACT_JSON_REGEX = /\{\s*"artifact"\s*:\s*(\{[\s\S]*?\})\s*\}/g;
 
 export interface ParsedResponse {
   cleanText: string;
   toolCalls: ToolCall[];
   artifacts: Array<{
-    type: 'code' | 'html' | 'svg' | 'document';
+    type: 'code' | 'html' | 'svg' | 'document' | 'image';
     title: string;
     content: string;
     language?: string;
+    imageUrl?: string;
   }>;
 }
 
@@ -54,12 +56,13 @@ export function parseAgentResponse(content: string): ParsedResponse {
     const matchArr = match as RegExpExecArray;
     try {
       const art = JSON.parse(matchArr[1]);
-      if (art.content) {
+      if (art.content || art.image_url) {
         artifacts.push({
           type: art.type || 'code',
           title: art.title || 'Artifact',
-          content: art.content,
+          content: art.content || '',
           language: art.language,
+          imageUrl: art.image_url,
         });
         cleanText = cleanText.replace(matchArr[0], `\n_[${art.title || 'Artifact'}]_\n`);
       }
@@ -72,6 +75,8 @@ export function parseAgentResponse(content: string): ParsedResponse {
   cleanText = cleanText
     .replace(/```json\s*\{\s*"tool"[\s\S]*?\}\s*```/g, '')
     .replace(/```json\s*\{\s*"artifact"[\s\S]*?\}\s*```/g, '')
+    .replace(/```\s*\{\s*"tool"[\s\S]*?\}\s*```/g, '')
+    .replace(/```\s*\{\s*"artifact"[\s\S]*?\}\s*```/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -85,6 +90,8 @@ export function stripJsonForDisplay(content: string): string {
     .replace(ARTIFACT_JSON_REGEX, '')
     .replace(/```json\s*\{\s*"tool"[\s\S]*?\}\s*```/g, '')
     .replace(/```json\s*\{\s*"artifact"[\s\S]*?\}\s*```/g, '')
+    .replace(/```\s*\{\s*"tool"[\s\S]*?\}\s*```/g, '')
+    .replace(/```\s*\{\s*"artifact"[\s\S]*?\}\s*```/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -92,7 +99,7 @@ export function stripJsonForDisplay(content: string): string {
 export async function executeToolCall(
   toolCall: ToolCall,
   tools: Tool[]
-): Promise<{ result: unknown; error: string | null; duration: number }> {
+): Promise<{ result: unknown; error: string | null; duration: number; artifact?: { type: 'code' | 'html' | 'svg' | 'document' | 'image'; title: string; content: string; language?: string; imageUrl?: string } }> {
   const tool = tools.find((t) => t.name === toolCall.name);
   if (!tool) {
     return { result: null, error: `Tool "${toolCall.name}" not found`, duration: 0 };
@@ -101,7 +108,26 @@ export async function executeToolCall(
   const start = performance.now();
   try {
     const result = await tool.execute(toolCall.arguments);
-    return { result, error: null, duration: Math.round(performance.now() - start) };
+    const duration = Math.round(performance.now() - start);
+    // If the tool result contains an artifact wrapper (e.g. svg_generator), extract it.
+    const r = result as { artifact?: { type: 'code' | 'html' | 'svg' | 'document' | 'image'; title: string; content: string; language?: string; imageUrl?: string } };
+    if (r && typeof r === 'object' && r.artifact) {
+      return { result, error: null, duration, artifact: r.artifact };
+    }
+    // If iris_image_gen returns image_urls, wrap the first as an image artifact.
+    const iris = result as { image_urls?: string[]; model?: string };
+    if (iris && Array.isArray(iris.image_urls) && iris.image_urls.length > 0) {
+      return {
+        result, error: null, duration,
+        artifact: {
+          type: 'image',
+          title: iris.model ? `${iris.model} image` : 'Generated image',
+          content: '',
+          imageUrl: iris.image_urls[0],
+        },
+      };
+    }
+    return { result, error: null, duration };
   } catch (err) {
     return {
       result: null,

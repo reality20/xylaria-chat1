@@ -168,16 +168,50 @@ function TextBlock({
     return <>{parts}</>;
   };
 
-  lines.forEach((line, idx) => {
+  let idx = 0;
+  while (idx < lines.length) {
+    const line = lines[idx];
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
     const unorderedMatch = line.match(/^(?:[-*+])\s+(.+)$/);
     const orderedMatch = line.match(/^\d+\.\s+(.+)$/);
     const blockquoteMatch = line.match(/^>\s?(.+)$/);
     const hrMatch = line.match(/^---+$/);
+    const tableHeaderMatch = line.match(/^\|(.+)\|\s*$/);
+    const tableDividerMatch = lines[idx + 1] && lines[idx + 1].match(/^\|[\s:|-]+\|\s*$/);
 
     if (hrMatch) {
       flushList();
       elements.push(<hr key={`hr-${idx}`} className="my-4 border-border" />);
+    } else if (tableHeaderMatch && tableDividerMatch) {
+      // Parse a markdown table.
+      flushList();
+      const headerCells = tableHeaderMatch[1].split('|').map((c) => c.trim());
+      const bodyRows: string[][] = [];
+      let j = idx + 2;
+      while (j < lines.length && lines[j].match(/^\|(.+)\|\s*$/)) {
+        bodyRows.push(lines[j].match(/^\|(.+)\|\s*$/)![1].split('|').map((c) => c.trim()));
+        j++;
+      }
+      elements.push(
+        <div key={`tbl-${idx}`} className="my-3 overflow-x-auto">
+          <table className="w-full border-collapse text-[13px]">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                {headerCells.map((c, i) => <th key={i} className="px-3 py-1.5 text-left font-medium text-foreground">{processInline(c)}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {bodyRows.map((r, ri) => (
+                <tr key={ri} className="border-b border-border/40">
+                  {r.map((c, ci) => <td key={ci} className="px-3 py-1.5 text-foreground/90">{processInline(c)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      idx = j;
+      continue;
     } else if (headingMatch) {
       flushList();
       const level = headingMatch[1].length;
@@ -228,7 +262,8 @@ function TextBlock({
         </p>
       );
     }
-  });
+    idx++;
+  }
 
   flushList();
 
@@ -244,11 +279,14 @@ function renderInlineMarkdown(text: string): React.ReactNode {
     | { type: 'italic'; content: string }
     | { type: 'code'; content: string }
     | { type: 'link'; content: string; url: string }
+    | { type: 'image'; alt: string; url: string }
     | { type: 'strikethrough'; content: string }
   > = [];
 
+  // Image: ![alt](url) — must come BEFORE the link regex (they share the (...) suffix)
+  // Link: [text](url) — only when not preceded by !
   const regex =
-    /(\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|`(.+?)`|\[(.+?)\]\((.+?)\)|~~(.+?)~~)/g;
+    /(!\[(.*?)\]\((.+?)\)|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|`(.+?)`|\[(.+?)\]\((.+?)\)|~~(.+?)~~)/g;
   let lastIndex = 0;
   let match;
 
@@ -257,16 +295,19 @@ function renderInlineMarkdown(text: string): React.ReactNode {
       parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
     }
 
-    if (match[2] || match[3]) {
-      parts.push({ type: 'bold', content: match[2] || match[3] });
+    if (match[2] !== undefined && match[3] !== undefined) {
+      // Image
+      parts.push({ type: 'image', alt: match[2], url: match[3] });
     } else if (match[4] || match[5]) {
-      parts.push({ type: 'italic', content: match[4] || match[5] });
-    } else if (match[6]) {
-      parts.push({ type: 'code', content: match[6] });
-    } else if (match[7] && match[8]) {
-      parts.push({ type: 'link', content: match[7], url: match[8] });
-    } else if (match[9]) {
-      parts.push({ type: 'strikethrough', content: match[9] });
+      parts.push({ type: 'bold', content: match[4] || match[5] });
+    } else if (match[6] || match[7]) {
+      parts.push({ type: 'italic', content: match[6] || match[7] });
+    } else if (match[8]) {
+      parts.push({ type: 'code', content: match[8] });
+    } else if (match[9] && match[10]) {
+      parts.push({ type: 'link', content: match[9], url: match[10] });
+    } else if (match[11]) {
+      parts.push({ type: 'strikethrough', content: match[11] });
     }
 
     lastIndex = match.index + match[0].length;
@@ -308,10 +349,21 @@ function renderInlineMarkdown(text: string): React.ReactNode {
             href={part.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary underline transition-colors hover:text-primary/80"
+            className="text-primary underline transition-colors hover:text-primary/80 break-words"
           >
             {part.content}
           </a>
+        );
+      case 'image':
+        return (
+          <img
+            key={i}
+            src={part.url}
+            alt={part.alt}
+            loading="lazy"
+            className="my-2 max-w-full rounded-lg border border-border shadow-sm"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
         );
       case 'strikethrough':
         return (
