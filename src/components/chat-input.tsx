@@ -116,18 +116,23 @@ export function ChatInput({ input, onInputChange, onSend, onStop, status, mode, 
   ];
 
   return (
-    <div className="shrink-0 border-t border-border/50 bg-background/95 backdrop-blur-sm">
-      <div className="mx-auto max-w-3xl px-3 sm:px-4 py-2 sm:py-3">
+    <div className="shrink-0 glass-strong">
+      {/* Accent line at top */}
+      <div className="accent-line" />
+
+      <div className="mx-auto max-w-3xl px-3 sm:px-4 py-3 sm:py-4">
         {/* Quick actions row — only show when input is empty */}
         {!input.trim() && attachments.length === 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
+          <div className="mb-2.5 flex flex-wrap gap-1.5">
             {quickActions.map((qa) => (
               <button
                 key={qa.label}
                 onClick={() => onInputChange(qa.prefix)}
-                className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground transition-all hover:border-primary/30 hover:bg-accent hover:text-foreground"
+                className="action-pill inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium text-muted-foreground"
               >
-                <qa.icon className="h-3 w-3" />
+                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10">
+                  <qa.icon className="h-2.5 w-2.5 text-primary/80" />
+                </span>
                 {qa.label}
               </button>
             ))}
@@ -138,11 +143,17 @@ export function ChatInput({ input, onInputChange, onSend, onStop, status, mode, 
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {attachments.map((f, i) => (
-              <div key={i} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px]">
-                <PaperclipIcon className="h-3 w-3" />
-                <span className="max-w-[120px] truncate">{f.name}</span>
-                <span className="text-muted-foreground/60">{(f.size / 1024).toFixed(1)}KB</span>
-                <button onClick={() => removeAttachment(i)} className="text-muted-foreground hover:text-destructive">
+              <div
+                key={i}
+                className="glass inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-muted-foreground"
+              >
+                <PaperclipIcon className="h-3 w-3 text-primary/60" />
+                <span className="max-w-[120px] truncate text-foreground/80">{f.name}</span>
+                <span className="text-muted-foreground/50">{(f.size / 1024).toFixed(1)}KB</span>
+                <button
+                  onClick={() => removeAttachment(i)}
+                  className="ml-0.5 text-muted-foreground/50 transition-colors hover:text-destructive"
+                >
                   <XIcon className="h-3 w-3" />
                 </button>
               </div>
@@ -150,46 +161,68 @@ export function ChatInput({ input, onInputChange, onSend, onStop, status, mode, 
           </div>
         )}
 
-        <div className="relative flex flex-col rounded-2xl border border-border/60 bg-muted/40 shadow-sm transition-all focus-within:border-primary/30 focus-within:bg-background focus-within:shadow-md focus-within:ring-1 focus-within:ring-primary/10">
+        {/* Main input wrapper with glow on focus */}
+        <div className="input-glow rounded-2xl border border-border/40 bg-gradient-input">
           <textarea
             ref={ref}
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="Ask anything...  (Shift+Enter for new line)"
+            placeholder="Ask anything..."
             rows={1}
-            className="w-full resize-none bg-transparent px-3 sm:px-4 py-3 text-[14px] text-foreground placeholder:text-muted-foreground/60 outline-none"
+            className="w-full resize-none bg-transparent px-4 py-3.5 text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground/45 outline-none"
           />
-          <div className="flex items-center justify-between gap-1 px-2 sm:px-3 pb-2">
+
+          {/* Bottom toolbar */}
+          <div className="flex items-center justify-between gap-1.5 px-2.5 sm:px-3 pb-2.5">
             <div className="flex items-center gap-1 min-w-0">
               {/* Mode picker */}
               <div className="relative" onClick={(e) => e.stopPropagation()}>
                 <button
                   onClick={() => setShowModePicker(!showModePicker)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-[11px] font-semibold text-primary transition-colors hover:bg-primary/15"
+                  className={cn(
+                    'glass inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] sm:text-[11px] font-medium transition-all',
+                    'hover:bg-card hover:border-primary/25',
+                    mode && 'border-primary/20 bg-primary/8 text-primary'
+                  )}
                   title="Chat mode"
                 >
-                  <ModeIcon className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                  <ModeIcon className="h-3 w-3 sm:h-3 sm:w-3" />
                   <span className="hidden sm:inline">{currentMode.label}</span>
-                  <ChevronDownIcon className="h-2.5 w-2.5" />
+                  <ChevronDownIcon className="h-2.5 w-2.5 opacity-60" />
                 </button>
+
+                {/* Mode dropdown */}
                 {showModePicker && (
-                  <div className="absolute bottom-full left-0 mb-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl z-50">
+                  <div className="glass-strong absolute bottom-full left-0 mb-1.5 w-60 rounded-xl p-1.5 shadow-2xl shadow-black/40 z-50">
                     {CHAT_MODES.map((m) => {
                       const Icon = MODE_ICONS[m.id];
+                      const isActive = m.id === mode;
                       return (
                         <button
                           key={m.id}
                           onClick={() => { onModeChange(m.id); setShowModePicker(false); }}
                           className={cn(
-                            'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
-                            m.id === mode ? 'bg-primary/10' : 'hover:bg-accent'
+                            'flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all',
+                            isActive
+                              ? 'bg-primary/10 border border-primary/15'
+                              : 'border border-transparent hover:bg-card/80'
                           )}
                         >
-                          <Icon className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', m.id === mode ? 'text-primary' : 'text-muted-foreground')} />
+                          <Icon
+                            className={cn(
+                              'mt-0.5 h-4 w-4 shrink-0 transition-colors',
+                              isActive ? 'text-primary' : 'text-muted-foreground/60'
+                            )}
+                          />
                           <div className="min-w-0">
-                            <div className={cn('text-[12px] font-medium', m.id === mode ? 'text-primary' : 'text-foreground')}>{m.label}</div>
-                            <div className="text-[10px] text-muted-foreground">{m.description}</div>
+                            <div className={cn(
+                              'text-[12px] font-medium transition-colors',
+                              isActive ? 'text-primary' : 'text-foreground/90'
+                            )}>
+                              {m.label}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground/60 leading-snug mt-0.5">{m.description}</div>
                           </div>
                         </button>
                       );
@@ -202,7 +235,7 @@ export function ChatInput({ input, onInputChange, onSend, onStop, status, mode, 
               {onAttachFiles && (
                 <button
                   onClick={() => fileRef.current?.click()}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="btn-glass flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/70 transition-all hover:text-foreground"
                   title="Attach files"
                 >
                   <PaperclipIcon className="h-3.5 w-3.5" />
@@ -216,33 +249,59 @@ export function ChatInput({ input, onInputChange, onSend, onStop, status, mode, 
                 onChange={(e) => { handleFiles(e.target.files); e.target.value = ''; }}
               />
 
-              {/* Voice */}
+              {/* Voice input */}
               <button
                 onClick={handleVoice}
                 className={cn(
-                  'flex h-7 w-7 items-center justify-center rounded-lg transition-colors',
-                  isRecording ? 'bg-red-500/20 text-red-600 animate-pulse' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                  'flex h-7 w-7 items-center justify-center rounded-lg transition-all',
+                  isRecording
+                    ? 'bg-red-500/15 text-red-400 animate-pulse ring-1 ring-red-500/30'
+                    : 'btn-glass text-muted-foreground/70 hover:text-foreground'
                 )}
                 title={isRecording ? 'Recording...' : 'Voice input'}
               >
                 <MicIcon className="h-3.5 w-3.5" />
               </button>
 
-              <span className="hidden lg:inline text-[10px] text-muted-foreground/50 ml-1">Shift+Enter ↵</span>
+              {/* Shift+Enter hint */}
+              <span className="hidden lg:inline text-[10px] text-muted-foreground/30 ml-1 select-none tracking-wide">
+                Shift+Enter ↵
+              </span>
             </div>
 
+            {/* Send / Stop button */}
             {isBusy ? (
-              <button onClick={onStop} className="flex h-8 w-8 items-center justify-center rounded-xl bg-destructive/10 text-destructive transition-all hover:bg-destructive/20 hover:scale-105" title="Stop">
-                <SquareIcon className="h-3.5 w-3.5 fill-current" />
+              <button
+                onClick={onStop}
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-xl transition-all',
+                  'bg-destructive/10 text-destructive border border-destructive/15',
+                  'hover:bg-destructive/20 hover:border-destructive/25 hover:scale-105'
+                )}
+                title="Stop"
+              >
+                <SquareIcon className="h-3 w-3 fill-current" />
               </button>
             ) : (
-              <button onClick={onSend} disabled={!input.trim()} className={cn('flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-all hover:scale-105 active:scale-95', !input.trim() && 'opacity-30 cursor-not-allowed')} title="Send">
+              <button
+                onClick={onSend}
+                disabled={!input.trim()}
+                className={cn(
+                  'btn-primary-gradient flex h-8 w-8 items-center justify-center rounded-xl',
+                  !input.trim() && 'opacity-25 cursor-not-allowed hover:transform-none hover:shadow-none'
+                )}
+                title="Send"
+              >
                 <SendIcon className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
         </div>
-        <p className="mt-1.5 text-center text-[10px] text-muted-foreground/40 tracking-wide">Xylaria is an AI and can make mistakes — please verify important info</p>
+
+        {/* Disclaimer */}
+        <p className="mt-2 text-center text-[10px] text-muted-foreground/30 tracking-wide select-none">
+          Xylaria is an AI and can make mistakes — please verify important info
+        </p>
       </div>
     </div>
   );

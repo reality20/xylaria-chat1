@@ -144,7 +144,7 @@ export function ChatInterface() {
   };
 
   return (
-    <div className="flex w-full overflow-hidden bg-background" style={{ height: viewportHeight }}>
+    <div className="flex w-full overflow-hidden bg-gradient-dark" style={{ height: viewportHeight }}>
       {/* Sidebar */}
       <Sidebar
         chats={chats} currentId={currentChat?.id || null}
@@ -161,18 +161,26 @@ export function ChatInterface() {
       {/* Main */}
       <div className="relative flex flex-1 flex-col overflow-hidden min-w-0">
         {/* Header */}
-        <header className="flex h-11 shrink-0 items-center gap-2 sm:gap-3 border-b border-border/50 bg-background/95 backdrop-blur-sm px-3 sm:px-4 z-10">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className={cn('flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground', sidebarOpen && 'md:hidden')}>
+        <header className="glass-strong flex h-11 shrink-0 items-center gap-2 sm:gap-3 border-b border-border/30 px-3 sm:px-4 z-10">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className={cn(
+              'btn-glass flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12)]',
+              sidebarOpen && 'md:hidden'
+            )}
+          >
             <MenuIcon className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-2 min-w-0">
-            <img src="/xylaria-logo.png" alt="" className="h-5 w-5 rounded-md object-contain" />
-            <h1 className="text-[13px] font-semibold truncate">{currentChat?.title || (settings.customName || 'Xylaria')}</h1>
+            <img src="/xylaria-logo.png" alt="" className="h-5 w-5 rounded-md object-contain opacity-90" />
+            <h1 className="text-[13px] font-semibold text-foreground/90 tracking-tight truncate">
+              {currentChat?.title || (settings.customName || 'Xylaria')}
+            </h1>
           </div>
           <div className="ml-auto flex items-center gap-0.5 sm:gap-1 shrink-0">
             <button
               onClick={() => setIsCommandPaletteOpen(true)}
-              className="hidden sm:flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="hidden sm:flex btn-glass h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12)]"
               title="Command palette (⌘K)"
             >
               <CommandIcon className="h-4 w-4" />
@@ -180,22 +188,40 @@ export function ChatInterface() {
             <button
               onClick={() => { if (currentChat) setIsShareOpen(true); }}
               disabled={!currentChat}
-              className={cn('flex h-7 w-7 items-center justify-center rounded-lg transition-colors', currentChat ? 'text-muted-foreground hover:bg-accent hover:text-foreground' : 'text-muted-foreground/30 cursor-not-allowed')}
+              className={cn(
+                'btn-glass flex h-7 w-7 items-center justify-center rounded-lg transition-all duration-150',
+                currentChat
+                  ? 'text-muted-foreground hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12)]'
+                  : 'text-muted-foreground/30 cursor-not-allowed'
+              )}
               title="Share / export chat"
             >
               <ShareIcon className="h-4 w-4" />
             </button>
             <button
               onClick={toggleTheme}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="btn-glass flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12)]"
               title="Toggle theme"
             >
               {settings.theme === 'dark' ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
             </button>
-            <button onClick={() => openArtifact('', 'javascript')} className="hidden sm:flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="JS Sandbox">
+            <button
+              onClick={() => openArtifact('', 'javascript')}
+              className="hidden sm:flex btn-glass h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12)]"
+              title="JS Sandbox"
+            >
               <TerminalIcon className="h-4 w-4" />
             </button>
-            <button onClick={() => setIsSettingsOpen(true)} className={cn('flex h-7 w-7 items-center justify-center rounded-lg transition-colors', isSettingsOpen ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground')} title="Settings (⌘,)">
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className={cn(
+                'btn-glass flex h-7 w-7 items-center justify-center rounded-lg transition-all duration-150',
+                isSettingsOpen
+                  ? 'text-primary shadow-[0_0_12px_hsl(var(--primary)/0.18)] border-primary/30'
+                  : 'text-muted-foreground hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12)]'
+              )}
+              title="Settings (⌘,)"
+            >
               <Settings2Icon className="h-4 w-4" />
             </button>
           </div>
@@ -203,10 +229,15 @@ export function ChatInterface() {
 
         {/* Error */}
         {error && (
-          <div className="shrink-0 border-b border-destructive/20 bg-destructive/10 px-4 py-2 z-10">
+          <div className="shrink-0 glass-strong border-b border-destructive/25 px-4 py-2 z-10">
             <div className="mx-auto flex max-w-3xl items-center justify-between">
-              <p className="text-[13px] text-destructive">{error}</p>
-              <button onClick={() => window.location.reload()} className="rounded-md bg-destructive/20 px-2.5 py-1 text-[11px] text-destructive hover:bg-destructive/30 transition-colors">Retry</button>
+              <p className="text-[13px] text-destructive font-medium">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="btn-glass rounded-lg bg-destructive/15 border-destructive/25 px-2.5 py-1 text-[11px] text-destructive font-medium hover:bg-destructive/25 hover:shadow-[0_0_10px_hsl(var(--destructive)/0.15)] transition-all duration-150"
+              >
+                Retry
+              </button>
             </div>
           </div>
         )}

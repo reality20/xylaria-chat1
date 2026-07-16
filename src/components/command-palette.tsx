@@ -103,32 +103,32 @@ export function CommandPalette({ onClose, onNewChat, onToggleSidebar, onOpenSett
   let flatIdx = -1;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh] px-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+    <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh] px-4 modal-overlay" onClick={onClose}>
       <div
-        className="relative w-full max-w-xl overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+        className="relative w-full max-w-xl overflow-hidden glass-strong rounded-2xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b border-border px-3">
-          <SearchIcon className="h-4 w-4 text-muted-foreground" />
+        {/* Glass search input */}
+        <div className="flex items-center gap-2 border-b border-border/30 px-3">
+          <SearchIcon className="h-4 w-4 text-primary/60" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKey}
             placeholder="Search commands, chats, or prompts..."
-            className="flex-1 bg-transparent py-3 text-[14px] outline-none placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent py-3 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/50"
           />
-          <kbd className="hidden sm:inline-flex h-5 items-center rounded border border-border px-1.5 text-[10px] text-muted-foreground">ESC</kbd>
+          <kbd className="hidden sm:inline-flex h-5 items-center rounded-md border border-border/40 bg-white/5 px-1.5 text-[10px] text-muted-foreground/50">ESC</kbd>
         </div>
 
-        <div className="max-h-[400px] overflow-y-auto p-1">
+        <div className="max-h-[400px] overflow-y-auto p-1.5">
           {filtered.length === 0 ? (
-            <div className="py-8 text-center text-[12px] text-muted-foreground">No matches for "{query}"</div>
+            <div className="py-8 text-center text-[12px] text-muted-foreground/60">No matches for &ldquo;{query}&rdquo;</div>
           ) : (
             Object.entries(groups).map(([group, groupItems]) => (
               <div key={group} className="mb-1">
-                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{group}</div>
+                <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">{group}</div>
                 {groupItems.map((it) => {
                   flatIdx++;
                   const isActive = flatIdx === activeIdx;
@@ -139,13 +139,15 @@ export function CommandPalette({ onClose, onNewChat, onToggleSidebar, onOpenSett
                       onMouseEnter={() => setActiveIdx(idx)}
                       onClick={() => it.action()}
                       className={cn(
-                        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors',
-                        isActive ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent'
+                        'flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] transition-all duration-150',
+                        isActive
+                          ? 'bg-primary/10 text-primary shadow-[0_0_12px_hsl(var(--primary)/0.08)]'
+                          : 'text-foreground/80 hover:bg-white/[0.04] hover:shadow-[0_0_8px_hsl(var(--primary)/0.04)]'
                       )}
                     >
-                      <it.icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')} />
+                      <it.icon className={cn('h-4 w-4 shrink-0 transition-colors duration-150', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
                       <span className="flex-1 truncate">{it.label}</span>
-                      {it.hint && <kbd className="text-[10px] text-muted-foreground">{it.hint}</kbd>}
+                      {it.hint && <kbd className="rounded-md border border-border/30 bg-white/5 px-1.5 text-[10px] text-muted-foreground/50">{it.hint}</kbd>}
                     </button>
                   );
                 })}
@@ -154,7 +156,7 @@ export function CommandPalette({ onClose, onNewChat, onToggleSidebar, onOpenSett
           )}
         </div>
 
-        <div className="border-t border-border bg-muted/30 px-3 py-1.5 text-[10px] text-muted-foreground flex items-center justify-between">
+        <div className="border-t border-border/30 bg-background/30 px-3 py-1.5 text-[10px] text-muted-foreground/50 flex items-center justify-between backdrop-blur-sm">
           <span>↑↓ to navigate · ↵ to select</span>
           <span>{filtered.length} results</span>
         </div>

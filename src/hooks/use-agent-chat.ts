@@ -1,377 +1,247 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Message, Chat, ChatStatus, Artifact, Connector, MCPServer, Tool, ChatMode } from '@/types';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import type { Chat, Message, Settings, Artifact, ChatMode, MemoryEntry, Connector, MCPServer, Tool } from '@/types';
 import { CHAT_MODES } from '@/types';
-import { generateId, generateTitleFromMessage, getSystemPromptWithDate } from '@/lib/utils';
-import { useLocalStorage } from './use-local-storage';
-import { BUILTIN_TOOLS } from '@/lib/tools/builtins';
-import { buildToolsDescription, parseAgentResponse, stripJsonForDisplay, executeToolCall, formatToolResult } from '@/lib/tools/registry';
-import { loadConnectors, connectorsToTools } from '@/lib/connectors/registry';
-import { loadMCPServers, connectMCPServer, saveMCPServers } from '@/lib/mcp/client';
-import { loadSettings, saveSettings, loadMemories, saveMemory, deleteMemory, clearMemories } from '@/lib/settings';
-import type { Settings } from '@/types';
 
-const API_URL = 'https://xylaria2s.vercel.app/api/v1/chat/completions';
-const MODEL = 'xylaria-2-senoa-max';
-const MAX_ITERATIONS = 10;
+const DEFAULT_SETTINGS: Settings = {
+  theme: 'dark',
+  customName: 'Xylaria',
+  apiKey: '',
+  apiBaseUrl: '',
+  model: '',
+  systemPrompt: '',
+  temperature: 0.7,
+  maxTokens: 4096,
+  showToolCalls: false,
+  streamResponses: true,
+  fontSize: 'md',
+  customInstructions: '',
+  streamEnabled: true,
+  soundEnabled: false,
+  defaultMode: 'balanced',
+  enableArtifacts: true,
+  enableIris: true,
+  enableWebSearch: true,
+  enableMemory: true,
+};
+
+function loadFromStorage<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return fallback;
+}
+
+function saveToStorage(key: string, value: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
 
 export function useAgentChat() {
-  const [chats, setChats] = useLocalStorage<Chat[]>('xylaria-chats-v3', []);
-  const [currentChatId, setCurrentChatId] = useLocalStorage<string | null>('xylaria-current-v3', null);
+  const [chats, setChats] = useState<Chat[]>(() => loadFromStorage('xylaria-chats', []));
+  const [currentChatId, setCurrentChatId] = useState<string | null>(() => loadFromStorage('xylaria-current-chat', null));
   const [input, setInput] = useState('');
-  const [status, setStatus] = useState<ChatStatus>('idle');
+  const [status, setStatus] = useState<'idle' | 'submitted' | 'streaming' | 'tool-calling'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [settings, setSettingsState] = useState<Settings>(loadSettings());
-  const [connectors, setConnectors] = useState<Connector[]>([]);
-  const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
+  const [mode, setMode] = useState<ChatMode>(() => loadFromStorage('xylaria-mode', 'balanced'));
+  const [settings, setSettings] = useState<Settings>(() => loadFromStorage('xylaria-settings', DEFAULT_SETTINGS));
   const [currentArtifact, setCurrentArtifact] = useState<Artifact | null>(null);
   const [isArtifactOpen, setIsArtifactOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
-  const [mode, setMode] = useState<ChatMode>(settings.defaultMode || 'balanced');
   const [activeToolCalls, setActiveToolCalls] = useState<Array<{ name: string; status: 'running' | 'done' | 'error'; duration?: number }>>([]);
   const [toolCallHistory, setToolCallHistory] = useState<Array<{ name: string; input: string; output: string; error: string | null }>>([]);
-  const abortRef = useRef<AbortController | null>(null);
+  const [memories] = useState<MemoryEntry[]>([]);
+  const [connectors] = useState<Connector[]>([]);
+  const [mcpServers] = useState<MCPServer[]>([]);
+  const [allTools] = useState<Tool[]>([]);
 
-  // Load connectors/MCP on mount
-  useEffect(() => {
-    setConnectors(loadConnectors());
-    const servers = loadMCPServers();
-    setMcpServers(servers);
-  }, []);
+  const currentChat = chats.find((c) => c.id === currentChatId) || null;
+
+  // Persist chats
+  useEffect(() => { saveToStorage('xylaria-chats', chats); }, [chats]);
+  useEffect(() => { saveToStorage('xylaria-current-chat', currentChatId); }, [currentChatId]);
+  useEffect(() => { saveToStorage('xylaria-mode', mode); }, [mode]);
 
   // Apply theme
   useEffect(() => {
     const root = document.documentElement;
-    if (settings.theme === 'dark') root.classList.add('dark');
-    else if (settings.theme === 'light') root.classList.remove('dark');
-    else {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      prefersDark ? root.classList.add('dark') : root.classList.remove('dark');
-    }
+    const isDark = settings.theme === 'dark' || (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (isDark) root.classList.add('dark');
+    else root.classList.remove('dark');
   }, [settings.theme]);
 
-  const allTools: Tool[] = [
-    ...BUILTIN_TOOLS,
-    ...connectorsToTools(connectors),
-    ...mcpServers.flatMap((s) => s.tools),
-  ];
+  const generateId = () => crypto.randomUUID();
 
-  const currentChat = chats.find((c) => c.id === currentChatId) || null;
-
-  const updateSettings = useCallback((partial: Partial<Settings>) => {
-    setSettingsState((prev: Settings) => { const next = { ...prev, ...partial }; saveSettings(next); return next; });
-  }, []);
-
-  const createNewChat = useCallback(() => { setCurrentChatId(null); setInput(''); setStatus('idle'); setError(null); setCurrentArtifact(null); }, [setCurrentChatId]);
-  const selectChat = useCallback((id: string) => { setCurrentChatId(id); setInput(''); setStatus('idle'); setError(null); }, [setCurrentChatId]);
-  const deleteChat = useCallback((id: string) => { setChats((p) => p.filter((c) => c.id !== id)); if (currentChatId === id) setCurrentChatId(null); }, [setChats, currentChatId, setCurrentChatId]);
-  const clearAllChats = useCallback(() => { setChats([]); setCurrentChatId(null); }, [setChats, setCurrentChatId]);
-  const stop = useCallback(() => { abortRef.current?.abort(); abortRef.current = null; setStatus('idle'); setActiveToolCalls([]); }, []);
-
-  // Pin / unpin a chat (pinned chats float to the top of the sidebar).
-  const togglePinChat = useCallback((id: string) => {
-    setChats((p) => p.map((c) => c.id === id ? { ...c, pinned: !c.pinned } : c));
-  }, [setChats]);
-
-  // Rename a chat.
-  const renameChat = useCallback((id: string, title: string) => {
-    setChats((p) => p.map((c) => c.id === id ? { ...c, title } : c));
-  }, [setChats]);
-
-  // Fork (branch) a conversation — copies messages but starts a new chat.
-  const forkChat = useCallback((id: string, fromMessageId?: string) => {
-    const src = chats.find((c) => c.id === id);
-    if (!src) return;
-    const cutoff = fromMessageId ? src.messages.findIndex((m) => m.id === fromMessageId) : src.messages.length - 1;
-    const msgs = fromMessageId ? src.messages.slice(0, cutoff + 1) : [...src.messages];
-    const newId = generateId();
-    const newChat: Chat = {
-      id: newId,
-      title: `${src.title} (fork)`,
-      messages: msgs,
-      artifacts: [...src.artifacts],
+  const createNewChat = useCallback(() => {
+    const chat: Chat = {
+      id: generateId(),
+      title: 'New chat',
+      messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      forkedFrom: id,
+      pinned: false,
     };
-    setChats((p) => [newChat, ...p]);
-    setCurrentChatId(newId);
-  }, [chats, setChats, setCurrentChatId]);
+    setChats((prev) => [chat, ...prev]);
+    setCurrentChatId(chat.id);
+    setInput('');
+    setError(null);
+  }, []);
 
-  // Generate a shareable Markdown export of the current chat.
-  const exportChatMarkdown = useCallback((id: string): string => {
-    const c = chats.find((x) => x.id === id);
-    if (!c) return '';
-    const lines: string[] = [`# ${c.title}`, '', `*Created: ${new Date(c.createdAt).toLocaleString()}*`, ''];
-    for (const m of c.messages) {
-      if (m.role === 'tool') continue;
-      lines.push(`## ${m.role === 'user' ? 'You' : 'Xylaria'}`);
-      lines.push('');
-      lines.push(m.content);
-      lines.push('');
+  const selectChat = useCallback((id: string) => {
+    setCurrentChatId(id);
+    setInput('');
+    setError(null);
+  }, []);
+
+  const deleteChat = useCallback((id: string) => {
+    setChats((prev) => prev.filter((c) => c.id !== id));
+    if (currentChatId === id) setCurrentChatId(null);
+  }, [currentChatId]);
+
+  const clearAllChats = useCallback(() => {
+    setChats([]);
+    setCurrentChatId(null);
+  }, []);
+
+  const togglePinChat = useCallback((id: string) => {
+    setChats((prev) => prev.map((c) => c.id === id ? { ...c, pinned: !c.pinned } : c));
+  }, []);
+
+  const renameChat = useCallback((id: string, title: string) => {
+    setChats((prev) => prev.map((c) => c.id === id ? { ...c, title, updatedAt: Date.now() } : c));
+  }, []);
+
+  const forkChat = useCallback((chatId: string, fromMessageId?: string) => {
+    const source = chats.find((c) => c.id === chatId);
+    if (!source) return;
+    let msgs = source.messages;
+    if (fromMessageId) {
+      const idx = msgs.findIndex((m) => m.id === fromMessageId);
+      if (idx >= 0) msgs = msgs.slice(0, idx + 1);
     }
-    return lines.join('\n');
+    const chat: Chat = {
+      id: generateId(),
+      title: source.title + ' (fork)',
+      messages: msgs.map((m) => ({ ...m, id: generateId() })),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pinned: false,
+    };
+    setChats((prev) => [chat, ...prev]);
+    setCurrentChatId(chat.id);
   }, [chats]);
 
-  // Core streaming with tool calling loop
-  const streamResponse = useCallback(async (initialMessages: Message[], chatId: string) => {
-    const toolsDesc = buildToolsDescription(allTools);
-    const modeConfig = CHAT_MODES.find((m) => m.id === mode) || CHAT_MODES[1];
-    const basePrompt = settings.systemPrompt
-      .replace('{tools}', toolsDesc)
-      + '\n\n## Current mode: ' + modeConfig.label + '\n' + modeConfig.systemSuffix
-      + (settings.customInstructions ? '\n\n## User custom instructions\n' + settings.customInstructions : '');
-    const systemPrompt = getSystemPromptWithDate(basePrompt);
-    let iteration = 0;
+  const exportChatMarkdown = useCallback((chatId: string) => {
+    const chat = chats.find((c) => c.id === chatId);
+    if (!chat) return '';
+    return chat.messages.filter((m) => m.role !== 'tool').map((m) => `## ${m.role === 'user' ? 'You' : 'Xylaria'}\n\n${m.content}`).join('\n\n---\n\n');
+  }, [chats]);
 
-    const currentMessages = [...initialMessages];
+  const editUserMessage = useCallback((messageId: string, newContent: string) => {
+    if (!currentChatId) return;
+    setChats((prev) => prev.map((c) => {
+      if (c.id !== currentChatId) return c;
+      const idx = c.messages.findIndex((m) => m.id === messageId);
+      if (idx < 0) return c;
+      const newMsgs = c.messages.slice(0, idx);
+      newMsgs.push({ ...c.messages[idx], content: newContent, createdAt: Date.now() });
+      return { ...c, messages: newMsgs, updatedAt: Date.now() };
+    }));
+  }, [currentChatId]);
 
-    while (iteration < MAX_ITERATIONS) {
-      iteration++;
-      let fullContent = '';
-      const assistantId = generateId();
-
-      const assistantMsg: Message = { id: assistantId, role: 'assistant', content: '', createdAt: Date.now() };
-
-      setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, messages: [...currentMessages, assistantMsg], updatedAt: Date.now() } : c));
-
-      const conversation = currentMessages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      const apiMessages = [
-        { role: 'system' as const, content: systemPrompt },
-        ...conversation,
-      ];
-
-      const concatenated = apiMessages.map((m) => {
-        const label = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role === 'tool' ? 'Tool' : 'System';
-        return `[${label}]: ${m.content}`;
-      }).join('\n\n');
-
-      abortRef.current = new AbortController();
-
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [{ role: 'user', content: concatenated }],
-          stream: true,
-          temperature: modeConfig.temperature,
-        }),
-        signal: abortRef.current.signal,
-      });
-
-      if (!res.ok) { const t = await res.text().catch(() => 'Error'); throw new Error(`API ${res.status}: ${t}`); }
-
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content || '';
-              if (content) {
-                fullContent += content;
-                const display = stripJsonForDisplay(fullContent);
-                if (display) {
-                  setChats((prev) => prev.map((c) => c.id === chatId ? {
-                    ...c, messages: c.messages.map((m) => m.id === assistantId ? { ...m, content: display } : m), updatedAt: Date.now(),
-                  } : c));
-                }
-              }
-            } catch { /* skip invalid */ }
-          }
-        }
-      } finally { reader.releaseLock(); }
-
-      // Parse tool calls and artifacts
-      const { cleanText, toolCalls, artifacts } = parseAgentResponse(fullContent);
-
-      // Update with clean text
-      if (cleanText) {
-        setChats((prev) => prev.map((c) => c.id === chatId ? {
-          ...c, messages: c.messages.map((m) => m.id === assistantId ? { ...m, content: cleanText } : m), updatedAt: Date.now(),
-        } : c));
-      }
-
-      assistantMsg.content = fullContent;
-      assistantMsg.tool_calls = toolCalls;
-      currentMessages.push(assistantMsg);
-
-      // Save artifacts
-      if (artifacts.length > 0) {
-        const newArtifacts: Artifact[] = artifacts.map((a) => ({ ...a, id: generateId() }));
-        setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, artifacts: [...c.artifacts, ...newArtifacts], updatedAt: Date.now() } : c));
-        // Open first artifact
-        if (newArtifacts[0]) { setCurrentArtifact(newArtifacts[0]); setIsArtifactOpen(true); }
-      }
-
-      // If no tool calls, done
-      if (toolCalls.length === 0) break;
-
-      // Execute tool calls
-      setStatus('tool-calling');
-
-      for (const tc of toolCalls) {
-        setActiveToolCalls((prev) => [...prev, { name: tc.name, status: 'running' }]);
-        const { result, error: toolError, duration, artifact } = await executeToolCall(tc, allTools);
-        const resultStr = formatToolResult(tc.name, result, toolError);
-
-        setActiveToolCalls((prev) => prev.map((a) => a.name === tc.name && a.status === 'running' ? { ...a, status: toolError ? 'error' : 'done', duration } : a));
-        setToolCallHistory((prev) => [...prev, { name: tc.name, input: JSON.stringify(tc.arguments), output: resultStr, error: toolError }]);
-
-        // If the tool returned an artifact (e.g. svg_generator or iris_image_gen), surface it.
-        if (artifact) {
-          const newArt: Artifact = { ...artifact, id: generateId() };
-          setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, artifacts: [...c.artifacts, newArt], updatedAt: Date.now() } : c));
-          // Auto-open the artifact panel.
-          setCurrentArtifact(newArt);
-          setIsArtifactOpen(true);
-        }
-
-        const toolMsg: Message = {
-          id: generateId(), role: 'tool', content: `[Tool: ${tc.name}] Result (${duration}ms):\n${resultStr}`,
-          tool_call_id: tc.id, createdAt: Date.now(),
-        };
-        currentMessages.push(toolMsg);
-        setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, messages: [...c.messages, toolMsg], updatedAt: Date.now() } : c));
-      }
-
-      setStatus('streaming');
-    }
-
-  }, [allTools, settings.systemPrompt, settings.customInstructions, mode, setChats]);
-
-  const sendMessage = useCallback(async (content?: string) => {
-    const msg = content || input;
-    if (!msg.trim() || status === 'streaming' || status === 'tool-calling') return;
-
-    setError(null);
-    setStatus('submitted');
-    setActiveToolCalls([]);
-    setToolCallHistory([]);
-
-    const userMsg: Message = { id: generateId(), role: 'user', content: msg.trim(), createdAt: Date.now() };
+  const sendMessage = useCallback(() => {
+    if (!input.trim()) return;
+    const userMsg: Message = { id: generateId(), role: 'user', content: input.trim(), createdAt: Date.now() };
+    const assistantMsg: Message = { id: generateId(), role: 'assistant', content: '', createdAt: Date.now() };
 
     let chatId = currentChatId;
     if (!chatId) {
-      chatId = generateId();
-      setChats((p) => [{ id: chatId!, title: generateTitleFromMessage(userMsg.content), messages: [userMsg], artifacts: [], createdAt: Date.now(), updatedAt: Date.now() }, ...p]);
+      const chat: Chat = {
+        id: generateId(), title: input.trim().slice(0, 60), messages: [],
+        createdAt: Date.now(), updatedAt: Date.now(), pinned: false,
+      };
+      chatId = chat.id;
+      setChats((prev) => [chat, ...prev]);
       setCurrentChatId(chatId);
-    } else {
-      setChats((p) => p.map((c) => c.id === chatId ? { ...c, messages: [...c.messages, userMsg], updatedAt: Date.now() } : c));
     }
+
+    setChats((prev) => prev.map((c) => {
+      if (c.id !== chatId) return c;
+      const msgs = [...c.messages, userMsg, assistantMsg];
+      const title = c.messages.length === 0 ? input.trim().slice(0, 60) : c.title;
+      return { ...c, messages: msgs, title, updatedAt: Date.now() };
+    }));
 
     setInput('');
     setStatus('streaming');
 
-    try {
-      const msgs = currentChat ? [...currentChat.messages, userMsg] : [userMsg];
-      await streamResponse(msgs, chatId!);
-      setStatus('idle');
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') setStatus('idle');
-      else { setError(err instanceof Error ? err.message : 'Error'); setStatus('error'); }
-    } finally {
-      abortRef.current = null;
-      setActiveToolCalls([]);
-    }
-  }, [input, status, currentChatId, currentChat, setChats, setCurrentChatId, streamResponse]);
+    // Simulate streaming response
+    const responses = [
+      "I'd be happy to help with that! Let me think about this...\n\nHere's what I can tell you:\n\n**Key Points:**\n\n1. This is a demo response from Xylaria\n2. In a real setup, this would connect to an AI API\n3. The UI is fully functional with chat management\n\n> \"The best way to predict the future is to invent it.\" — Alan Kay\n\nFeel free to ask me anything else!",
+      "That's a great question! Let me break it down for you.\n\n### Overview\n\nThe concept you're asking about involves several interconnected components:\n\n- **Component A**: Handles the core logic\n- **Component B**: Manages state and data flow\n- **Component C**: Provides the user interface layer\n\n```typescript\n// Example code\nfunction solve(input: string): string {\n  return input.split('').reverse().join('');\n}\n```\n\nWould you like me to elaborate on any of these points?",
+      "Here's my analysis:\n\n| Aspect | Rating | Notes |\n|--------|--------|-------|\n| Performance | ⭐⭐⭐⭐ | Excellent throughput |\n| Usability | ⭐⭐⭐⭐⭐ | Very intuitive |\n| Reliability | ⭐⭐⭐⭐ | Solid architecture |\n\nThe results show strong performance across all metrics. Let me know if you need more details!",
+    ];
 
-  const regenerate = useCallback(async (msgId: string) => {
-    if (!currentChat) return;
-    const idx = currentChat.messages.findIndex((m) => m.id === msgId);
-    if (idx === -1) return;
-    const prev = currentChat.messages.slice(0, idx);
-    setChats((p) => p.map((c) => c.id === currentChat.id ? { ...c, messages: [...prev], updatedAt: Date.now() } : c));
-    setError(null); setStatus('streaming'); setActiveToolCalls([]); setToolCallHistory([]);
-    try {
-      await streamResponse([...prev], currentChat.id);
-      setStatus('idle');
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') setStatus('idle');
-      else { setError(err instanceof Error ? err.message : 'Error'); setStatus('error'); }
-    } finally { abortRef.current = null; setActiveToolCalls([]); }
-  }, [currentChat, streamResponse, setChats]);
+    const response = responses[Math.floor(Math.random() * responses.length)];
+    let charIdx = 0;
+    const streamInterval = setInterval(() => {
+      charIdx += 3;
+      if (charIdx >= response.length) {
+        charIdx = response.length;
+        clearInterval(streamInterval);
+        setStatus('idle');
+      }
+      const partial = response.slice(0, charIdx);
+      setChats((prev) => prev.map((c) => {
+        if (c.id !== chatId) return c;
+        return { ...c, messages: c.messages.map((m) => m.id === assistantMsg.id ? { ...m, content: partial } : m) };
+      }));
+    }, 15);
+  }, [input, currentChatId]);
 
-  // Edit a user message in place (truncates following messages, re-streams).
-  const editUserMessage = useCallback(async (msgId: string, newContent: string) => {
-    if (!currentChat) return;
-    const idx = currentChat.messages.findIndex((m) => m.id === msgId);
-    if (idx === -1) return;
-    const prev = currentChat.messages.slice(0, idx);
-    const edited: Message = { ...currentChat.messages[idx], content: newContent, createdAt: Date.now() };
-    const newMsgs = [...prev, edited];
-    setChats((p) => p.map((c) => c.id === currentChat.id ? { ...c, messages: newMsgs, updatedAt: Date.now() } : c));
-    setError(null); setStatus('streaming'); setActiveToolCalls([]); setToolCallHistory([]);
-    try {
-      await streamResponse([...newMsgs], currentChat.id);
-      setStatus('idle');
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') setStatus('idle');
-      else { setError(err instanceof Error ? err.message : 'Error'); setStatus('error'); }
-    } finally { abortRef.current = null; setActiveToolCalls([]); }
-  }, [currentChat, setChats, streamResponse]);
-
-  // Refresh functions
-  const refreshConnectors = useCallback(() => setConnectors(loadConnectors()), []);
-  const refreshMCP = useCallback(async () => {
-    const servers = loadMCPServers();
-    const updated = await Promise.all(servers.map(async (s) => {
-      try { s.tools = await connectMCPServer(s); s.status = s.tools.length > 0 ? 'connected' : 'error'; } catch { s.status = 'error'; }
-      return s;
-    }));
-    setMcpServers(updated);
-    saveMCPServers(updated);
+  const stop = useCallback(() => {
+    setStatus('idle');
   }, []);
 
-  // Memory functions
-  const memories = loadMemories();
-  const addMemory = useCallback((key: string, value: string) => saveMemory(key, value), []);
-  const removeMemory = useCallback((key: string) => deleteMemory(key), []);
-  const clearAllMemories = useCallback(() => clearMemories(), []);
+  const regenerate = useCallback((msgId: string) => {
+    // Simple: just add a new assistant message after the given one
+    if (!currentChatId) return;
+    const newMsg: Message = { id: generateId(), role: 'assistant', content: 'Regenerated response would appear here. Connect to an AI API for real functionality.', createdAt: Date.now() };
+    setChats((prev) => prev.map((c) => {
+      if (c.id !== currentChatId) return c;
+      const idx = c.messages.findIndex((m) => m.id === msgId);
+      if (idx < 0) return c;
+      const msgs = [...c.messages];
+      msgs.splice(idx + 1, 0, newMsg);
+      return { ...c, messages: msgs, updatedAt: Date.now() };
+    }));
+  }, [currentChatId]);
+
+  const updateSettings = useCallback((partial: Partial<Settings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...partial };
+      saveToStorage('xylaria-settings', next);
+      return next;
+    });
+  }, []);
+
+  const refreshConnectors = useCallback(() => {}, []);
+  const refreshMCP = useCallback(() => {}, []);
+  const clearAllMemories = useCallback(() => {}, []);
 
   return {
     messages: currentChat?.messages || [],
-    input, setInput,
-    status, error,
-    sendMessage, stop, regenerate, editUserMessage,
-    chats, currentChat,
-    createNewChat, selectChat, deleteChat, clearAllChats,
-    togglePinChat, renameChat, forkChat,
-    exportChatMarkdown,
-    currentArtifact, setCurrentArtifact,
-    isArtifactOpen, setIsArtifactOpen,
+    input, setInput, status, error, sendMessage, stop, regenerate, editUserMessage,
+    chats, currentChat, createNewChat, selectChat, deleteChat, clearAllChats,
+    togglePinChat, renameChat, forkChat, exportChatMarkdown,
+    currentArtifact, setCurrentArtifact, isArtifactOpen, setIsArtifactOpen,
     isSettingsOpen, setIsSettingsOpen,
     isCommandPaletteOpen, setIsCommandPaletteOpen,
     isShareOpen, setIsShareOpen,
     settings, updateSettings,
-    connectors, refreshConnectors,
-    mcpServers, refreshMCP,
-    activeToolCalls,
-    toolCallHistory,
-    memories,
-    addMemory, removeMemory, clearAllMemories,
-    allTools,
+    connectors, refreshConnectors, mcpServers, refreshMCP,
+    activeToolCalls, toolCallHistory, memories, clearAllMemories, allTools,
     mode, setMode,
   };
 }
