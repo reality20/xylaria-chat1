@@ -93,8 +93,25 @@ export interface MCPServer {
   tools?: Tool[];
 }
 
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+export interface ToolParameterSchema {
+  type: string;
+  properties?: Record<string, unknown>;
+  required?: string[];
+  [key: string]: unknown;
+}
+
 export interface Tool {
   name: string;
   description: string;
-  parameters?: Record<string, unknown>;
+  parameters?: ToolParameterSchema;
+  execute?: (args: Record<string, any>) => Promise<string>;
 }
