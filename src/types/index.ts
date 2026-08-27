@@ -110,5 +110,5 @@ export interface Tool {
   name: string;
   description: string;
   parameters?: ToolParameterSchema;
-  execute?: (args: Record<string, any>) => Promise<unknown>;
+  execute?: (args: Record<string, any>) => unknown | Promise<unknown>;
 }
