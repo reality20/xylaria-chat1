@@ -6,7 +6,7 @@ export function buildToolsDescription(tools: Tool[]): string {
     if (!t.parameters?.properties) return `- ${t.name}: ${t.description}`;
     const params = Object.entries(t.parameters.properties)
       .map(([key, val]) => {
-        const req = t.parameters.required?.includes(key);
+        const req = t.parameters?.required?.includes(key);
         const valObj = val as { type?: string; description?: string };
         return `  - ${key}: ${valObj.type || 'unknown'}${req ? ' (required)' : ''} - ${valObj.description || ''}`;
       }).join('\n');
@@ -112,7 +112,7 @@ export async function executeToolCall(
     if (!tool.execute) {
       return { result: null, error: `Tool "${toolCall.name}" has no execute function`, duration: 0 };
     }
-    const result = await tool.execute(toolCall.arguments);
+    const result = await Promise.resolve(tool.execute(toolCall.arguments));
     const duration = Math.round(performance.now() - start);
     // If the tool result contains an artifact wrapper (e.g. svg_generator), extract it.
     const r = result as { artifact?: { type: 'code' | 'html' | 'svg' | 'document' | 'image'; title: string; content: string; language?: string; imageUrl?: string } };
