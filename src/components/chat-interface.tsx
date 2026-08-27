@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
   MenuIcon, TerminalIcon, Settings2Icon, ShareIcon, CommandIcon,
-  SunIcon, MoonIcon,
+  SunIcon, MoonIcon, PhoneIcon, VideoIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAgentChat } from '@/hooks/use-agent-chat';
@@ -17,7 +17,12 @@ import { CommandPalette } from './command-palette';
 import { ShareModal } from './share-modal';
 import type { Artifact } from '@/types';
 
-export function ChatInterface() {
+interface ChatInterfaceProps {
+  onVoiceCall?: () => void;
+  onVideoCall?: () => void;
+}
+
+export function ChatInterface({ onVoiceCall, onVideoCall }: ChatInterfaceProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const {
@@ -185,6 +190,24 @@ export function ChatInterface() {
             >
               <CommandIcon className="h-4 w-4" />
             </button>
+            {onVoiceCall && (
+              <button
+                onClick={onVoiceCall}
+                className="btn-glass flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12)]"
+                title="Start voice call"
+              >
+                <PhoneIcon className="h-4 w-4" />
+              </button>
+            )}
+            {onVideoCall && (
+              <button
+                onClick={onVideoCall}
+                className="btn-glass flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-all duration-150 hover:text-foreground hover:shadow-[0_0_10px_hsl(var(--primary)/0.12)]"
+                title="Start video call"
+              >
+                <VideoIcon className="h-4 w-4" />
+              </button>
+            )}
             <button
               onClick={() => { if (currentChat) setIsShareOpen(true); }}
               disabled={!currentChat}
