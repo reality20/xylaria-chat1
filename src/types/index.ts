@@ -95,11 +95,8 @@ export interface MCPServer {
 
 export interface ToolCall {
   id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string;
-  };
+  name: string;
+  arguments: Record<string, any>;
 }
 
 export interface ToolParameterSchema {
@@ -113,5 +110,5 @@ export interface Tool {
   name: string;
   description: string;
   parameters?: ToolParameterSchema;
-  execute?: (args: Record<string, any>) => Promise<string>;
+  execute?: (args: Record<string, any>) => Promise<unknown>;
 }
