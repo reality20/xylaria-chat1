@@ -1,6 +1,5 @@
 {
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "functions": {
-    "maxMemorySize": 1024
   }
 }
