@@ -1,6 +1,8 @@
 {
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "functions": {
-    "maxMemorySize": 512
+    "api/**/*.js": {
+      "maxMemorySize": 512
+    }
   }
 }
