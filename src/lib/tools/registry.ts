@@ -3,10 +3,12 @@ import type { Tool, ToolCall } from '@/types';
 // Build a clean tool description for the system prompt
 export function buildToolsDescription(tools: Tool[]): string {
   return tools.map((t) => {
+    if (!t.parameters?.properties) return `- ${t.name}: ${t.description}`;
     const params = Object.entries(t.parameters.properties)
       .map(([key, val]) => {
         const req = t.parameters.required?.includes(key);
-        return `  - ${key}: ${val.type}${req ? ' (required)' : ''} - ${val.description}`;
+        const valObj = val as { type?: string; description?: string };
+        return `  - ${key}: ${valObj.type || 'unknown'}${req ? ' (required)' : ''} - ${valObj.description || ''}`;
       }).join('\n');
     return `- ${t.name}: ${t.description}\n${params}`;
   }).join('\n\n');
@@ -107,6 +109,9 @@ export async function executeToolCall(
 
   const start = performance.now();
   try {
+    if (!tool.execute) {
+      return { result: null, error: `Tool "${toolCall.name}" has no execute function`, duration: 0 };
+    }
     const result = await tool.execute(toolCall.arguments);
     const duration = Math.round(performance.now() - start);
     // If the tool result contains an artifact wrapper (e.g. svg_generator), extract it.
